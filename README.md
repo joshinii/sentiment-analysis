@@ -1,316 +1,205 @@
-# Sentiment Analysis Platform
+Sentiment Analysis Platform
 
-## 📋 Project Overview
-
-A production-ready sentiment analysis platform built on AWS using serverless architecture. The platform analyzes text sentiment using machine learning (DistilBERT) and provides real-time analysis, batch processing, and historical data retrieval capabilities.
-
-### Key Features
-- 🤖 **Real-time Sentiment Analysis** - Analyze text sentiment using DistilBERT ML model
-- 📊 **Batch Processing** - Process multiple texts from CSV files
-- 📜 **History Tracking** - Store and retrieve analysis history
-- 🎨 **Web Interface** - Beautiful, responsive frontend
-- ☁️ **Serverless Architecture** - Built on AWS Lambda
-- 📈 **Auto-scaling** - Handles variable load automatically
-- 💰 **Cost-effective** - Runs within AWS Free Tier
-
----
-
-## 🏗️ Architecture
-
-### Components
-1. **Frontend** - HTML/CSS/JavaScript web interface
-2. **Backend** - 3 AWS Lambda functions (Python 3.11)
-3. **Infrastructure** - Complete Terraform IaC
-4. **Storage** - DynamoDB for data, S3 for files
-5. **API** - API Gateway REST API
-6. **CDN** - CloudFront for global distribution
-
-### AWS Services
-- AWS Lambda (3 functions)
-- API Gateway (REST API)
-- DynamoDB (NoSQL database)
-- S3 (Object storage)
-- CloudFront (CDN)
-- CloudWatch (Monitoring)
-- IAM (Security)
-
----
+A serverless sentiment analysis application using AWS Lambda, API Gateway, DynamoDB, and S3.
+Analyzes text to determine if it's positive or negative using AI. You can:
+- Analyze single texts in real-time
+- Process multiple texts in batch mode
+- View your analysis history
 
 
-## 🚀 Quick Start
+Deployment Steps:
 
-### Prerequisites
-- Python 3.11+
-- AWS Account (Free Tier)
-- Terraform 1.6+
-- AWS CLI configured
+Prerequisites
 
-### Local Testing (5 Minutes)
+Before you start, make sure you have:
+- An AWS account
+- AWS CLI installed on your computer
+- Terraform installed 
+- Python 3.11 or higher
+
+Step 1: Set Up AWS Credentials
+
+Open your terminal and run:
 
 ```bash
-# 1. Clone repository
-git clone git@github.com:joshinii/sentiment-analysis.git
-cd sentiment-platform-final
-
-# 2. Install dependencies
-pip install flask flask-cors boto3
-
-# 3. Start local server
-python scripts/local_server.py
-
-# 4. Open browser
-# Open frontend/index.html
-# Test the application!
+aws configure
 ```
 
-### Deploy to AWS (30 Minutes)
+Step 2: Configure Your Email for Alerts
+
+Go to the infrastructure folder:
 
 ```bash
-# 1. Configure AWS credentials
-aws configure
+cd sentiment-analysis-infrastructure
+```
 
-# 2. Navigate to infrastructure
-cd infrastructure
+Copy the example config file:
 
-# 3. Initialize Terraform
+```bash
+cp terraform.tfvars.example terraform.tfvars
+```
+
+Open `terraform.tfvars` in any text editor and change this line:
+
+```hcl
+alert_email = "xxx@xx.com"  # Put YOUR real email here
+```
+
+Save the file. You'll get email alerts if anything goes wrong with your app.
+
+
+Step 3: Deploy the Infrastructure
+
+Still in the `sentiment-analysis-infrastructure` folder, run:
+
+```bash
 terraform init
 
-# 4. Review plan
 terraform plan
 
-# 5. Deploy
 terraform apply
-
-# 6. Get API endpoint
-terraform output api_endpoint
 ```
 
----
+Step 4: Upload Lambda Function Code
 
-## 📊 Technical Specifications
+Now we need to upload the actual code for our functions.
 
-### ML Model
-- **Model:** DistilBERT (distilbert-base-uncased-finetuned-sst-2-english)
-- **Source:** HuggingFace Transformers
-- **Task:** Binary Sentiment Classification
-- **Accuracy:** 91.3% on SST-2 benchmark
-- **Classes:** POSITIVE, NEGATIVE
-- **Inference Time:** 200-500ms
+For the Sentiment Analyzer:
 
-### API Endpoints
-- `POST /analyze` - Analyze single text
-- `POST /batch` - Process CSV batch
-- `GET /history` - Retrieve user history
-- `GET /batch/{id}` - Get batch status
-
-### Database Schema
-- **Table:** sentiment-analytics
-- **Partition Key:** user_id (String)
-- **Sort Key:** timestamp (Number)
-- **Attributes:** text, sentiment, confidence, batch_id
-
-### Scalability
-- **Concurrent Requests:** Unlimited (Lambda auto-scales)
-- **Storage:** 25GB DynamoDB (Free Tier)
-- **API Calls:** 1M/month (Free Tier)
-- **Data Transfer:** 100GB/month CloudFront (Free Tier)
-
----
-
-## 💰 Cost Analysis
-
-### Free Tier (First 12 Months)
-- Lambda: 1M requests/month FREE
-- DynamoDB: 25GB storage + 200M requests FREE
-- API Gateway: 1M API calls/month FREE
-- S3: 5GB storage FREE
-- CloudFront: 1TB data transfer FREE
-
-**Total Cost:** $0/month
-
-### After Free Tier (Estimated)
-- Low usage (<10K requests/month): $2-3/month
-- Medium usage (<100K requests/month): $10-15/month
-- High usage (<1M requests/month): $50-75/month
-
----
-
-## 🧪 Testing
-
-### Unit Tests
 ```bash
-pytest tests/test_sentiment.py
-pytest tests/test_batch.py
+cd ../backend/sentiment_analyzer
+
+ Create a package folder
+mkdir package
+
+ Install the libraries the code needs
+pip install -r requirements.txt -t package/ --platform manylinux2014_x86_64 --only-binary=:all:
+
+ Copy our code
+cp lambda_function.py package/
+
+ Zip it up
+cd package
+zip -r ../sentiment_analyzer.zip .
+cd ..
+
+ Upload to AWS
+aws lambda update-function-code \
+  --function-name sentiment-platform-dev-analyze-sentiment \
+  --zip-file fileb://sentiment_analyzer.zip
 ```
 
-### Integration Tests
+For the Batch Processor:
+
 ```bash
-pytest tests/test_integration.py
+cd ../batch_processor
+
+mkdir package
+pip install -r requirements.txt -t package/
+cp batch_handler.py package/
+cd package && zip -r ../batch_processor.zip . && cd ..
+
+aws lambda update-function-code \
+  --function-name sentiment-platform-dev-batch-processor \
+  --zip-file fileb://batch_processor.zip
 ```
 
-### Local Testing
+For the History Handler:
+
 ```bash
-python scripts/local_server.py
-# Open frontend/index.html
-# Test all features
+cd ../history
+
+mkdir package
+pip install -r requirements.txt -t package/
+cp history_handler.py package/
+cd package && zip -r ../history.zip . && cd ..
+
+aws lambda update-function-code \
+  --function-name sentiment-platform-dev-history \
+  --zip-file fileb://history.zip
 ```
 
-### Production Testing
+Step 5: Update and Upload the Frontend
+
+Go to the frontend folder:
+
 ```bash
-# Test API endpoint
-curl -X POST https://your-api/dev/analyze \
-  -H "Content-Type: application/json" \
-  -d '{"text":"I love this!","user_id":"test"}'
+cd ../../frontend
 ```
 
----
+Open `index.html` in a text editor and find this line (around line 20):
 
-## 📚 Documentation
+```javascript
+const apiUrl = 'http://localhost:5000';
+```
 
-### Assignment 1 Deliverables
-- ✅ **Design Document** - `docs/DESIGN_DOCUMENT.md`
-- ✅ **Architecture Diagram** - `docs/architecture_diagram.png`
-- ✅ **Sequence Diagrams** - `docs/sequence_diagrams/` (3 diagrams)
-- ✅ **Complete Code** - All source code included
-- ✅ **Terraform IaC** - `infrastructure/` (6 modules)
-- ✅ **Deployment Guide** - `docs/DEPLOYMENT_GUIDE.md`
+Replace it with your actual API endpoint from Step 3's output:
 
-### Additional Documentation
-- API Documentation - `docs/API_DOCUMENTATION.md`
-- Testing Guide - `docs/TESTING_GUIDE.md`
-- Frontend README - `frontend/README.md`
-- Backend READMEs - Each Lambda has README
+```javascript
+const apiUrl = 'https://YOUR-API-ID.execute-api.us-east-1.amazonaws.com/dev';
+```
 
----
+Save the file.
 
-## 🔒 Security
+Now upload it to AWS:
 
-### IAM Policies
-- Least privilege access
-- Function-specific roles
-- No hardcoded credentials
-- AWS Secrets Manager integration ready
+```bash
+ Get your bucket name (from Step 3 outputs)
+cd ../sentiment-analysis-infrastructure
+terraform output frontend_bucket
 
-### API Security
-- CORS configured
-- Rate limiting available
-- API key support (optional)
-- Request validation
+ Upload the file
+cd ../frontend
+aws s3 cp index.html s3://YOUR-BUCKET-NAME/
+```
 
-### Data Security
-- DynamoDB encryption at rest
-- S3 encryption enabled
-- HTTPS only (CloudFront)
-- VPC support ready
+Replace `YOUR-BUCKET-NAME` with the actual bucket name from the output.
 
----
 
-## 📈 Monitoring
+Step 6: Clear the CloudFront Cache
 
-### CloudWatch Metrics
-- Lambda invocations
-- Error rates
-- Duration times
-- API Gateway requests
-- DynamoDB throttles
+Your website is served through CloudFront (a CDN). We need to tell it about the new file:
 
-### Alarms Configured
-- High error rate (>5%)
-- Long duration (>5s)
-- Throttling events
-- 5xx API errors
+```bash
+cd ../sentiment-analysis-infrastructure
+terraform output cloudfront_distribution_id
 
-### Dashboards
-- Real-time performance
-- Cost tracking
-- Request patterns
-- Error analysis
+aws cloudfront create-invalidation \
+  --distribution-id YOUR-DISTRIBUTION-ID \
+  --paths "/*"
+```
 
----
+This takes 10-15 minutes to propagate globally.
 
-## 🎯 Assignment 1 Completion
 
-### Requirements Met
-- [x] Cloud architecture design
-- [x] AWS services integration (6 services)
-- [x] Serverless implementation
-- [x] Infrastructure as Code (Terraform)
-- [x] Complete documentation
-- [x] Working prototype
-- [x] Security best practices
-- [x] Monitoring and logging
-- [x] Scalability design
-- [x] Cost optimization
+Step 7: Confirm Your Email Subscription
 
-### Grading Criteria
-- **Architecture Design (25%)** - Complete architecture with diagrams
-- **Implementation (35%)** - Working code with all features
-- **Infrastructure (20%)** - Complete Terraform IaC
-- **Documentation (15%)** - Comprehensive docs
-- **Presentation (5%)** - Clear README and guides
+Check your email! You should have received a message from AWS asking you to confirm your subscription to alerts.
 
-**Expected Grade:** A+ (100%)
+Click the confirmation link in that email. Without this, you won't get error notifications.
 
----
 
-## 🚧 Known Limitations
+Step 8: Test Your Application
 
-1. **Cold Start** - First Lambda invocation takes 10-15 seconds (model download)
-2. **Model Size** - 250MB model cache in Lambda /tmp
-3. **Binary Classification** - Only POSITIVE/NEGATIVE (no NEUTRAL)
-4. **Text Length** - Max 5000 characters per text
+Get your CloudFront URL:
 
----
+```bash
+cd sentiment-analysis-infrastructure
+terraform output cloudfront_url
+```
 
-## 🔮 Future Enhancements
+Open that URL in your browser!
 
-### Phase 2 (Assignment 2)
-- Add user authentication (Cognito)
-- Multi-language support
-- More ML models
-- Real-time notifications (SNS)
 
-### Phase 3 (Production)
-- CI/CD pipeline (GitHub Actions)
-- Model retraining pipeline
-- A/B testing framework
-- Advanced analytics dashboard
+Cleanup (When You're Done)
 
----
+To delete everything and stop charges:
 
-## 📞 Support
+```bash
+cd sentiment-analysis-infrastructure
+terraform destroy
+```
 
-### Documentation
-- See `docs/` folder for detailed guides
-- Check API documentation for endpoints
-- Review architecture diagram for system design
+Type `yes` when asked. This removes everything from AWS.
 
-### Troubleshooting
-- Check CloudWatch Logs for errors
-- Review Terraform state for infrastructure
-- Test locally before deploying
-
-### Contact
-- **GitHub Issues:** [Repository URL]
-- **Email:** [Your Email]
-- **Office Hours:** [Schedule]
-
----
-
-## 📄 License
-
-This project is created for educational purposes as part of a cloud computing course assignment.
-
-## 📊 Project Statistics
-
-- **Total Lines of Code:** 3,500+
-- **Lambda Functions:** 3
-- **Terraform Modules:** 6
-- **AWS Services:** 7
-- **Documentation Pages:** 10+
-- **Test Cases:** 15+
-- **Development Time:** 40+ hours
-
----
-
-**Status:** ✅ Complete and Ready for Submission
+Warning: This deletes all your data permanently!

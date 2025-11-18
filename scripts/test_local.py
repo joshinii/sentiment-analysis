@@ -276,7 +276,7 @@ def main():
         print("     pip install transformers torch")
         print("  2. Configure AWS CLI:")
         print("     aws configure")
-        print("  3. Deploy infrastructure:")
+        print("  3. Deploy sentiment-analysis-infrastructure:")
         print("     cd terraform && terraform apply")
         print("  4. Package and deploy Lambda functions")
         print()
