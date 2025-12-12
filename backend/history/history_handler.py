@@ -73,29 +73,53 @@ def get_user_history(user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
         ]
     
     try:
-        table = dynamodb.Table(DYNAMODB_TABLE)
+        table_name = os.environ.get('DYNAMODB_TABLE')
+        if not table_name:
+            logger.error("DYNAMODB_TABLE environment variable not set")
+            # Fallback for now to see if that's the issue, or fail loud
+             # Returning empty with error log
+            return []
+
+        table = dynamodb.Table(table_name)
         
-        # Query user's analysis history
+        logger.info(f"Querying table {table_name} for user {user_id}")
+        
+        # Query user's analysis history (and batch history)
+        # We remove the SK condition to get all user items (ANALYSIS# and BATCH#)
         response = table.query(
-            KeyConditionExpression=Key('PK').eq(f'USER#{user_id}') & Key('SK').begins_with('ANALYSIS#'),
+            KeyConditionExpression=Key('PK').eq(f'USER#{user_id}'),
             Limit=limit,
             ScanIndexForward=False  # Most recent first
         )
         
         items = response.get('Items', [])
+        logger.info(f"Found {len(items)} items for user {user_id}")
         
         # Format results
         results = []
         for item in items:
-            results.append({
-                'text': item.get('text', ''),
-                'sentiment': item.get('sentiment', ''),
-                'confidence': float(item.get('confidence', 0.0)),
-                'timestamp': item.get('timestamp', 0),
-                'created_at': item.get('created_at', '')
-            })
+            sk = item.get('SK', '')
+            if sk.startswith('BATCH#'):
+                results.append({
+                    'type': 'BATCH',
+                    'batch_id': item.get('batch_id', ''),
+                    'text': f"Batch Processing ({item.get('total_rows', 0)} items)",
+                    'sentiment': item.get('status', 'UNKNOWN'),
+                    'confidence': 1.0 if item.get('status') == 'COMPLETED' else 0.0,
+                    'timestamp': item.get('timestamp', 0),
+                    'created_at': item.get('created_at', ''),
+                    'summary': f"Success: {item.get('success_count', 0)}, Failed: {item.get('failed_count', 0)}"
+                })
+            else:
+                results.append({
+                    'type': 'ANALYSIS',
+                    'text': item.get('text', ''),
+                    'sentiment': item.get('sentiment', ''),
+                    'confidence': float(item.get('confidence', 0.0)),
+                    'timestamp': item.get('timestamp', 0),
+                    'created_at': item.get('created_at', '')
+                })
         
-        logger.info(f"Retrieved {len(results)} history items for user {user_id}")
         return results
         
     except Exception as e:
@@ -276,6 +300,7 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
 
 # For local testing
 if __name__ == "__main__":
+    AWS_AVAILABLE = False
     print("=== Testing History Lambda ===\n")
     
     # Test 1: Get user history

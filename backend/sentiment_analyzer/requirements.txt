@@ -1,12 +1,5 @@
-# Core dependencies
-boto3>=1.34.0
-botocore>=1.34.0
+onnxruntime>=1.16.0
+tokenizers>=0.14.0
+numpy==1.26.4
+# transformers removed to save space. We use tokenizers directly.
 
-# ML dependencies
-transformers>=4.35.0
-torch>=2.1.0
-sentencepiece>=0.1.99
-
-# For local testing
-pytest>=7.4.0
-moto>=4.2.0

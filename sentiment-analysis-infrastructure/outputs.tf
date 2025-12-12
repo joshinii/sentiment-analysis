@@ -54,36 +54,16 @@ output "deployment_instructions" {
     
     Next steps:
     
-    1. Package and upload Lambda functions:
+    1. Update your local config with the new AWS IDs:
        
-       cd ../backend/sentiment_analyzer
-       pip install -r requirements.txt -t package/ --platform manylinux2014_x86_64 --only-binary=:all:
-       cp lambda_function.py package/
-       cd package && zip -r ../sentiment_analyzer.zip . && cd ..
+       cd .. 
+       python update_config.py
+    
+    2. Run the master script to package code, upload assets, and update the frontend:
        
-       aws lambda update-function-code \
-         --function-name ${aws_lambda_function.sentiment_analyzer.function_name} \
-         --zip-file fileb://sentiment_analyzer.zip
+       python deploy_all.py
     
-    2. Upload frontend to S3:
-       
-       cd ../frontend
-       aws s3 cp index.html s3://${aws_s3_bucket.frontend.id}/
-    
-    3. Update frontend with API endpoint:
-       
-       Edit index.html and replace API_ENDPOINT with:
-       ${aws_api_gateway_stage.main.invoke_url}
-    
-    4. Invalidate CloudFront cache:
-       
-       aws cloudfront create-invalidation \
-         --distribution-id ${aws_cloudfront_distribution.main.id} \
-         --paths "/*"
-    
-    5. Confirm SNS email subscription (check your email)
-    
-    6. Access your app at:
+    3. Access your app at:
        https://${aws_cloudfront_distribution.main.domain_name}
   EOT
 }

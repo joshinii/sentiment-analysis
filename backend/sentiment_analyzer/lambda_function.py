@@ -11,128 +11,155 @@ from datetime import datetime
 from typing import Dict, Any
 from decimal import Decimal
 
+import json
+import logging
+import os
+import time
+from decimal import Decimal
+import onnxruntime as ort
+from tokenizers import Tokenizer
+import numpy as np
+
 # Configure logging
 logger = logging.getLogger()
-logger.setLevel(os.environ.get('LOG_LEVEL', 'INFO'))
+logger.setLevel(logging.INFO)
 
-# AWS clients (will be None in local testing)
+# Global variables for caching
+model = None
+tokenizer = None
+MODEL_PATH = os.environ.get('MODEL_PATH', '/tmp/model_assets')
+MODEL_BUCKET = os.environ.get('MODEL_BUCKET')
 try:
     s3_client = boto3.client('s3')
     dynamodb = boto3.resource('dynamodb')
     AWS_AVAILABLE = True
-except Exception as e:
-    logger.warning(f"AWS services not available: {e}")
+except Exception:
     AWS_AVAILABLE = False
 
-# Environment variables
-MODEL_BUCKET = os.environ.get('MODEL_BUCKET', 'local-test-bucket')
-DYNAMODB_TABLE = os.environ.get('DYNAMODB_TABLE', 'local-test-table')
-MODEL_KEY = os.environ.get('MODEL_KEY', 'models/distilbert-sentiment/')
 
-# Global variables for model (loaded once per container)
-model = None
-tokenizer = None
+def softmax(x):
+    """Compute softmax values for each sets of scores in x."""
+    e_x = np.exp(x - np.max(x))
+    return e_x / e_x.sum(axis=0)
 
-
-def load_model():
-    """
-    Load the pre-trained sentiment analysis model.
-    In production: Downloads from S3
-    In local testing: Uses HuggingFace cache
-    """
-    global model, tokenizer
+def download_model_from_s3():
+    """Download model assets from S3 to /tmp"""
+    if not os.path.exists(MODEL_PATH):
+        os.makedirs(MODEL_PATH)
     
-    if model is not None and tokenizer is not None:
-        logger.info("Model already loaded, skipping...")
-        return
-    
-    logger.info("Loading sentiment analysis model...")
+    logger.info(f"Downloading model from s3://{MODEL_BUCKET}/model_assets ...")
     
     try:
-        from transformers import AutoTokenizer, AutoModelForSequenceClassification
-        import torch
-        
-        # Use a lightweight model that works in Lambda
-        model_name = "distilbert-base-uncased-finetuned-sst-2-english"
-        
-        logger.info(f"Loading model: {model_name}")
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForSequenceClassification.from_pretrained(model_name)
-        
-        # Set to evaluation mode
-        model.eval()
-        
-        logger.info("Model loaded successfully")
-        
+        if not MODEL_BUCKET:
+            logger.warning("MODEL_BUCKET not set. Assuming local model.")
+            return
+
+        objects = s3_client.list_objects_v2(Bucket=MODEL_BUCKET, Prefix="model_assets/")
+        if 'Contents' not in objects:
+            logger.error("No model assets found in S3")
+            return # Don't raise, might be local test or preloaded
+
+        for obj in objects['Contents']:
+            key = obj['Key']
+            rel_path = os.path.relpath(key, "model_assets")
+            if rel_path == ".": continue
+            local_file = os.path.join(MODEL_PATH, rel_path)
+            local_dir = os.path.dirname(local_file)
+            if not os.path.exists(local_dir):
+                os.makedirs(local_dir)
+            
+            logger.info(f"Downloading {key} to {local_file}")
+            s3_client.download_file(MODEL_BUCKET, key, local_file)
     except Exception as e:
-        logger.error(f"Error loading model: {str(e)}")
-        raise
+        logger.error(f"Failed to download model: {e}")
+        # raise e # Don't crash if optional? But for Lambda it's critical.
+        raise e
 
+def load_model():
+    global model, tokenizer
+    if model is None or tokenizer is None:
+        try:
+            logger.info("Loading ONNX model and tokenizer...")
+            
+            if not os.path.exists(os.path.join(MODEL_PATH, "model.onnx")):
+                download_model_from_s3()
+            
+            # Load Tokenizer from tokenizer.json
+            metrics_path = os.path.join(MODEL_PATH, "tokenizer.json")
+            if not os.path.exists(metrics_path):
+                 # Fallback/Error? download should have fetched it. 
+                 raise Exception("tokenizer.json not found")
 
-def analyze_sentiment(text: str) -> Dict[str, Any]:
-    """
-    Analyze sentiment of input text.
-    
-    Args:
-        text: Input text to analyze
-        
-    Returns:
-        Dictionary containing sentiment label and confidence score
-    """
+            tokenizer = Tokenizer.from_file(metrics_path)
+            # Enable truncation and padding
+            tokenizer.enable_truncation(max_length=512)
+            tokenizer.enable_padding(length=512)
+
+            # Load ONNX Model
+            model_file = os.path.join(MODEL_PATH, "model.onnx")
+            model = ort.InferenceSession(model_file)
+            
+            logger.info("Model loaded successfully")
+        except Exception as e:
+            logger.error(f"Error loading model: {e}")
+            raise e
+
+def analyze_sentiment(text):
+    """Analyze sentiment using ONNX Runtime and Tokenizers"""
     global model, tokenizer
     
-    # Ensure model is loaded
     if model is None or tokenizer is None:
         load_model()
     
-    try:
-        import torch
-        
-        # Tokenize input
-        inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
-        
-        # Run inference
-        with torch.no_grad():
-            outputs = model(**inputs)
-            predictions = torch.nn.functional.softmax(outputs.logits, dim=-1)
-        
-        # Get predicted class and confidence
-        confidence, predicted_class = torch.max(predictions, dim=1)
-        
-        # Map class to label (0 = NEGATIVE, 1 = POSITIVE)
-        sentiment_map = {0: "NEGATIVE", 1: "POSITIVE"}
-        sentiment = sentiment_map[predicted_class.item()]
-        confidence_score = float(confidence.item())
-        
-        logger.info(f"Sentiment: {sentiment}, Confidence: {confidence_score:.4f}")
-        
-        return {
-            "sentiment": sentiment,
-            "confidence": confidence_score,
-            "text_preview": text[:100] if len(text) > 100 else text
-        }
-        
-    except Exception as e:
-        logger.error(f"Error during inference: {str(e)}")
-        raise
+    # Tokenize
+    encoded = tokenizer.encode(text)
+    
+    # Prepare inputs for ONNX (DistilBERT expects input_ids and attention_mask)
+    # The names must match the ONNX model input names. Usually 'input_ids', 'attention_mask'.
+    # We can check model.get_inputs() but standard DistilBERT is standard.
+    
+    input_ids = np.array([encoded.ids], dtype=np.int64)
+    attention_mask = np.array([encoded.attention_mask], dtype=np.int64)
+    
+    onnx_inputs = {
+        'input_ids': input_ids,
+        'attention_mask': attention_mask
+    }
+    
+    # Inference
+    outputs = model.run(None, onnx_inputs)
+    logits = outputs[0][0]
+    
+    # Post-process
+    probabilities = softmax(logits)
+    sentiment_idx = np.argmax(probabilities)
+    confidence = float(probabilities[sentiment_idx])
+    
+    labels = ["NEGATIVE", "POSITIVE"]
+    sentiment = labels[sentiment_idx]
+    
+    return {
+        "sentiment": sentiment,
+        "confidence": confidence,
+        "text_preview": text[:100]
+    }
 
 
-def save_to_dynamodb(user_id: str, text: str, result: Dict[str, Any]) -> None:
+def save_to_dynamodb(user_id: str, text: str, result: Dict[str, Any]) -> Dict[str, Any]:
     """
     Save analysis result to DynamoDB.
-    Skipped in local testing if AWS is not available.
-    
-    Args:
-        user_id: User identifier
-        text: Original input text
-        result: Analysis result dictionary
+    Returns status dict with success/error details.
     """
     if not AWS_AVAILABLE:
-        logger.info("AWS not available - skipping DynamoDB save (local testing)")
-        return
+        # Local testing mock
+        return {"success": True, "message": "Local mode (skipped DB)"}
     
     try:
-        table = dynamodb.Table(DYNAMODB_TABLE)
+        table_name = os.environ.get('DYNAMODB_TABLE')
+        if not table_name:
+             return {"success": False, "error": "DYNAMODB_TABLE env var missing"}
+
+        table = dynamodb.Table(table_name)
         timestamp = int(datetime.now().timestamp())
         
         item = {
@@ -140,31 +167,23 @@ def save_to_dynamodb(user_id: str, text: str, result: Dict[str, Any]) -> None:
             'SK': f'ANALYSIS#{timestamp}',
             'text': text,
             'sentiment': result['sentiment'],
-            'confidence': Decimal(str(result['confidence'])),  # DynamoDB requires Decimal
+            'confidence': Decimal(str(result['confidence'])),
             'timestamp': timestamp,
             'created_at': datetime.now().isoformat()
         }
         
         table.put_item(Item=item)
         logger.info(f"Saved result to DynamoDB for user {user_id}")
+        return {"success": True}
         
     except Exception as e:
         logger.error(f"Error saving to DynamoDB: {str(e)}")
-        # Don't raise - we still want to return the result to the user
+        return {"success": False, "error": str(e)}
 
 
 def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]:
     """
     Lambda function handler for sentiment analysis.
-    
-    Expected event format:
-    {
-        "text": "I love this product!",
-        "user_id": "user123"  # Optional
-    }
-    
-    Returns:
-        API Gateway response with sentiment analysis result
     """
     logger.info(f"Received event: {json.dumps(event, default=str)}")
     
@@ -207,18 +226,17 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
         # Perform sentiment analysis
         result = analyze_sentiment(text)
         
-        # Save to DynamoDB (async, don't wait)
-        try:
-            save_to_dynamodb(user_id, text, result)
-        except Exception as e:
-            logger.warning(f"Failed to save to DynamoDB: {str(e)}")
+        # Save to DynamoDB
+        db_status = save_to_dynamodb(user_id, text, result)
         
         # Return successful response
         response_body = {
+            'user_id': user_id,
             'sentiment': result['sentiment'],
             'confidence': result['confidence'],
             'timestamp': int(datetime.now().timestamp()),
-            'text_preview': result['text_preview']
+            'text_preview': result['text_preview'],
+            'db_save_status': db_status # Debug field
         }
         
         return {
@@ -248,6 +266,7 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
 
 # For local testing
 if __name__ == "__main__":
+    AWS_AVAILABLE = False
     print("=== Testing Sentiment Analysis Lambda ===\n")
     
     # Test cases

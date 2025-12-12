@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -83,8 +84,15 @@
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         /* Mode Selector */
@@ -130,7 +138,9 @@
             font-size: 1.1em;
         }
 
-        textarea, input[type="text"], input[type="file"] {
+        textarea,
+        input[type="text"],
+        input[type="file"] {
             width: 100%;
             padding: 15px;
             border: 2px solid #e0e0e0;
@@ -145,7 +155,8 @@
             resize: vertical;
         }
 
-        input[type="text"]:focus, textarea:focus {
+        input[type="text"]:focus,
+        textarea:focus {
             outline: none;
             border-color: #667eea;
         }
@@ -211,6 +222,7 @@
                 opacity: 0;
                 transform: translateY(20px);
             }
+
             to {
                 opacity: 1;
                 transform: translateY(0);
@@ -317,8 +329,13 @@
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         /* Error Card */
@@ -376,6 +393,7 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <h1>🎭 Sentiment Analysis Platform</h1>
@@ -391,11 +409,10 @@
             </button>
         </div>
 
-        <!-- API Endpoint Config -->
+        <!-- API Endpoint Config (Hidden) -->
         <div class="input-section" id="apiConfig" style="display: none;">
             <label>API Endpoint:</label>
-            <input type="text" id="apiEndpoint" placeholder="https://your-api.execute-api.us-west-2.amazonaws.com/dev">
-            <p class="help-text">Enter your AWS API Gateway endpoint</p>
+            <input type="text" id="apiEndpoint" value="https://r0unfakca4.execute-api.us-west-2.amazonaws.com/dev">
         </div>
 
         <!-- Tab Navigation -->
@@ -415,10 +432,8 @@
         <div id="analyzeTab" class="tab-content active">
             <div class="input-section">
                 <label for="textInput">Enter your text:</label>
-                <textarea 
-                    id="textInput" 
-                    placeholder="Type or paste your text here..."
-                >I absolutely love this product! The quality is outstanding!</textarea>
+                <textarea id="textInput"
+                    placeholder="Type or paste your text here...">I absolutely love this product! The quality is outstanding!</textarea>
             </div>
 
             <div class="input-section">
@@ -448,7 +463,8 @@
         <div id="batchTab" class="tab-content">
             <div class="info-box">
                 <strong>📊 Batch Processing</strong><br>
-                Process multiple texts at once. In AWS mode, upload a CSV file to S3. In local mode, test with sample data.
+                Process multiple texts at once. In AWS mode, upload a CSV file to S3. In local mode, test with sample
+                data.
             </div>
 
             <div class="input-section">
@@ -530,6 +546,13 @@ Amazing experience!</textarea>
         let currentMode = 'local';
         const LOCAL_API = 'http://localhost:5000';
 
+        // Auto-detect environment
+        if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+            document.getElementById('localBtn').style.display = 'none';
+            // Auto-switch to AWS mode
+            setTimeout(() => setMode('aws'), 100);
+        }
+
         // Switch between tabs
         function switchTab(tabName) {
             // Update tab buttons
@@ -549,7 +572,7 @@ Amazing experience!</textarea>
             currentMode = mode;
             document.getElementById('localBtn').classList.toggle('active', mode === 'local');
             document.getElementById('awsBtn').classList.toggle('active', mode === 'aws');
-            document.getElementById('apiConfig').style.display = mode === 'aws' ? 'block' : 'none';
+            // document.getElementById('apiConfig').style.display = mode === 'aws' ? 'block' : 'none'; // Keep hidden
             document.getElementById('csvUpload').style.display = mode === 'aws' ? 'block' : 'none';
         }
 
@@ -640,11 +663,36 @@ Amazing experience!</textarea>
 
         // ========== BATCH PROCESSING ==========
         async function processBatch() {
-            const texts = document.getElementById('batchTexts').value.trim().split('\n').filter(t => t.trim());
             const userId = document.getElementById('batchUserId').value.trim() || 'batch-user';
+            let texts = [];
+
+            // Get texts from Textarea or File
+            if (currentMode === 'aws' && document.getElementById('csvFile').files.length > 0) {
+                const file = document.getElementById('csvFile').files[0];
+                try {
+                    const content = await readFile(file);
+                    // Simple CSV parser: assumes header row, takes first column
+                    const lines = content.split('\n').map(l => l.trim()).filter(l => l);
+                    // Remove header if it looks like "text,..."
+                    if (lines[0].toLowerCase().startsWith('text')) lines.shift();
+
+                    texts = lines.map(line => {
+                        // Handle simple quotes: "text",id
+                        if (line.startsWith('"')) {
+                            return line.split('",')[0].substring(1);
+                        }
+                        return line.split(',')[0];
+                    });
+                } catch (e) {
+                    showError('batchError', 'Error reading file: ' + e.message);
+                    return;
+                }
+            } else {
+                texts = document.getElementById('batchTexts').value.trim().split('\n').filter(t => t.trim());
+            }
 
             if (texts.length === 0) {
-                showError('batchError', 'Please enter at least one text');
+                showError('batchError', 'Please enter texts or upload a valid CSV');
                 return;
             }
 
@@ -653,42 +701,75 @@ Amazing experience!</textarea>
 
             try {
                 const apiUrl = getApiUrl();
-                
-                // Process each text individually and collect results
-                const results = [];
-                for (let i = 0; i < texts.length; i++) {
-                    const response = await fetch(`${apiUrl}/analyze`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            text: texts[i], 
-                            user_id: `${userId}-${i}` 
-                        })
-                    });
 
-                    if (response.ok) {
-                        const data = await response.json();
-                        results.push({
-                            text: texts[i],
-                            sentiment: data.sentiment,
-                            confidence: data.confidence,
-                            status: 'success'
-                        });
-                    } else {
-                        results.push({
-                            text: texts[i],
-                            status: 'failed',
-                            error: 'Processing failed'
-                        });
-                    }
+                // Call Batch Endpoint (Unified for Local and AWS)
+                const response = await fetch(`${apiUrl}/batch`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        texts: texts,
+                        user_id: userId,
+                        batch_id: `batch-${Date.now()}`
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.status}`);
                 }
 
-                displayBatchResult(results);
+                const data = await response.json();
+
+                // Normalize result format if needed (Local server returns 'results', Lambda returns 'message' + saved to DB)
+                // Wait, Lambda handler returns { batch_id, total_rows, ... } but NOT the full results list if async?
+                // Actually Lambda returns:
+                // 'body': json.dumps({ 'batch_id': ..., 'status': 'COMPLETED', ... })
+                // It does NOT return the list of sentiment results in the response body mostly (check batch_handler.py).
+                // batch_handler.py DOES NOT return 'results' key in the final response!
+                // It saves to DynamoDB.
+
+                // So if we are in AWS mode, we might need to poll or just show "Batch Submitted".
+                // Local Server DOES return 'results'.
+
+                if (data.results) {
+                    displayBatchResult(data.results);
+                } else {
+                    // AWS (Async/Stored) flow: Show success message and link to history
+                    document.getElementById('batchResult').innerHTML = `
+                        <div style="text-align: center; padding: 20px;">
+                            <h3 style="color: #28a745; margin-bottom: 10px;">✅ Batch Processed Successfully!</h3>
+                            <p>Batch ID: <strong>${data.batch_id}</strong></p>
+                            <p>Processed: ${data.total_rows} items</p>
+                            <p>Success: ${data.success_count} | Failed: ${data.failed_count}</p>
+                            <button class="mode-btn active" style="margin-top: 15px;" onclick="viewBatchHistory('${data.batch_id}')">
+                                📜 View Results in History
+                            </button>
+                        </div>
+                    `;
+                    document.getElementById('batchResult').className = 'result-card show';
+                }
+
             } catch (error) {
                 showError('batchError', error.message);
             } finally {
                 showLoading('batchLoading', false);
             }
+        }
+
+        function readFile(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target.result);
+                reader.onerror = (e) => reject(e);
+                reader.readAsText(file);
+            });
+        }
+
+        function viewBatchHistory(batchId) {
+            switchTab('history');
+            document.getElementById('historyUserId').value = ''; // specific batch doesn't need user id
+            // We need to support searching by batch_id in UI or just params
+            // Hack for now: trigger search specific to batch
+            getHistory(batchId);
         }
 
         function displayBatchResult(results) {
@@ -728,7 +809,7 @@ Amazing experience!</textarea>
             results.forEach((result, index) => {
                 const sentimentClass = result.sentiment === 'POSITIVE' ? 'positive' : 'negative';
                 const confidence = result.confidence ? (result.confidence * 100).toFixed(1) + '%' : 'N/A';
-                
+
                 html += `
                     <tr>
                         <td>${index + 1}</td>
@@ -754,11 +835,18 @@ Amazing experience!</textarea>
         }
 
         // ========== HISTORY ==========
-        async function getHistory() {
+        async function getHistory(batchIdOverride) {
             const userId = document.getElementById('historyUserId').value.trim();
             const limit = parseInt(document.getElementById('historyLimit').value) || 10;
 
-            if (!userId) {
+            let queryParams = '';
+
+            // Check if batchIdOverride is a string (event object check)
+            if (batchIdOverride && typeof batchIdOverride === 'string') {
+                queryParams = `batch_id=${batchIdOverride}`;
+            } else if (userId) {
+                queryParams = `user_id=${userId}&limit=${limit}`;
+            } else {
                 showError('historyError', 'Please enter a user ID');
                 return;
             }
@@ -769,7 +857,7 @@ Amazing experience!</textarea>
 
             try {
                 const apiUrl = getApiUrl();
-                const response = await fetch(`${apiUrl}/history?user_id=${userId}&limit=${limit}`);
+                const response = await fetch(`${apiUrl}/history?${queryParams}`);
 
                 if (!response.ok) {
                     throw new Error(`API error: ${response.status}`);
@@ -786,7 +874,7 @@ Amazing experience!</textarea>
 
         function displayHistory(data) {
             const container = document.getElementById('historyResults');
-            
+
             if (!data.history || data.history.length === 0) {
                 container.innerHTML = `
                     <div class="info-box">
@@ -812,15 +900,23 @@ Amazing experience!</textarea>
             `;
 
             data.history.forEach(item => {
-                const sentimentClass = item.sentiment === 'POSITIVE' ? 'positive' : 'negative';
-                const confidence = (item.confidence * 100).toFixed(1) + '%';
-                const date = item.created_at ? new Date(item.created_at).toLocaleString() : 
-                             item.timestamp ? new Date(item.timestamp * 1000).toLocaleString() : 'N/A';
-                
+                let textDisplay = item.text.substring(0, 50) + (item.text.length > 50 ? '...' : '');
+                let sentimentClass = item.sentiment === 'POSITIVE' ? 'positive' : item.sentiment === 'NEGATIVE' ? 'negative' : 'neutral';
+                let confidence = (item.confidence * 100).toFixed(1) + '%';
+
+                if (item.type === 'BATCH') {
+                    textDisplay = `<strong>📊 ${item.text}</strong><br><span style="font-size:0.8em">${item.summary}</span>`;
+                    sentimentClass = item.sentiment === 'COMPLETED' ? 'positive' : 'neutral';
+                    confidence = '-';
+                }
+
+                const date = item.created_at ? new Date(item.created_at).toLocaleString() :
+                    item.timestamp ? new Date(item.timestamp * 1000).toLocaleString() : 'N/A';
+
                 html += `
                     <tr>
                         <td style="white-space: nowrap;">${date}</td>
-                        <td>${item.text.substring(0, 50)}${item.text.length > 50 ? '...' : ''}</td>
+                        <td>${textDisplay}</td>
                         <td><span class="sentiment-badge ${sentimentClass}">${item.sentiment}</span></td>
                         <td>${confidence}</td>
                     </tr>
@@ -865,7 +961,7 @@ Amazing experience!</textarea>
             const resultId = tab + 'Result';
             const errorId = tab + 'Error';
             const resultsId = tab === 'history' ? 'historyResults' : null;
-            
+
             document.getElementById(resultId)?.classList.remove('show');
             hideError(errorId);
             if (resultsId) {
@@ -893,11 +989,12 @@ Amazing experience!</textarea>
         });
 
         // Keyboard shortcut: Ctrl+Enter to analyze
-        document.getElementById('textInput').addEventListener('keydown', function(e) {
+        document.getElementById('textInput').addEventListener('keydown', function (e) {
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                 analyzeSentiment();
             }
         });
     </script>
 </body>
+
 </html>

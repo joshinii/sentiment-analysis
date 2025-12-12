@@ -11,6 +11,11 @@ import json
 from datetime import datetime
 import time
 
+# Set MODEL_PATH to local directory to avoid downloading
+repo_root = os.path.dirname(os.path.abspath(__file__))
+os.environ['MODEL_PATH'] = os.path.join(repo_root, 'backend', 'model_assets')
+os.environ['AWS_AVAILABLE'] = 'False' # Force local mode
+
 # Add Lambda function to path - For root directory location
 lambda_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'backend', 'sentiment_analyzer')
 sys.path.insert(0, lambda_path)
@@ -44,11 +49,29 @@ except ImportError as e:
     print(f"⚠️  History handler not loaded: {e}")
     history_handler = None
 
-app = Flask(__name__)
-CORS(app)  # Enable CORS for frontend
+# File-based persistence
+HISTORY_FILE = 'local_history.json'
 
-# In-memory storage for local testing (simulates DynamoDB)
-local_history = []
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return []
+    return []
+
+def save_history(history):
+    try:
+        with open(HISTORY_FILE, 'w') as f:
+            json.dump(history, f, indent=2)
+    except Exception as e:
+        print(f"Error saving history: {e}")
+
+app = Flask(__name__)
+CORS(app)
+
+local_history = load_history()
 
 @app.route('/analyze', methods=['POST', 'OPTIONS'])
 def analyze():
@@ -83,6 +106,8 @@ def analyze():
             # Keep only last 100 items
             if len(local_history) > 100:
                 local_history.pop(0)
+            
+            save_history(local_history)
             
             return jsonify(body), 200
         else:
@@ -138,6 +163,7 @@ def batch():
                         'timestamp': int(time.time()),
                         'created_at': datetime.now().isoformat()
                     })
+                    save_history(local_history)
                 else:
                     results.append({
                         'row': i,
@@ -317,7 +343,7 @@ if __name__ == '__main__':
     print("     • History")
     print()
     print("💾 Local Storage:")
-    print("   - History stored in memory (resets on restart)")
+    print("   - History stored in 'local_history.json' (persists on restart)")
     print("   - Max 100 items kept")
     print()
     print("=" * 70)

@@ -50,3 +50,24 @@ deployment_outputs.txt
 *.log
 
 myenv
+
+# Temporary and Debug files
+batch_errors.json
+full_history_log.json
+history_errors.json
+history_error_log.txt
+invoke_payload.json
+local_history.json
+response.json
+response_verify.json
+debug_dynamo.py
+reproduce_issue.py
+test_api.py
+test_batch_history.py
+test_running_server.py
+lambda_packages/
+model_assets/
+tmp/
+*.json
+!package.json
+!tsconfig.json

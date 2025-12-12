@@ -1,14 +1,4 @@
-# Core dependencies
-boto3>=1.34.0
-botocore>=1.34.0
+onnxruntime>=1.16.0
+tokenizers>=0.14.0
+numpy==1.26.4
 
-# ML dependencies
-transformers>=4.35.0
-torch>=2.1.0
-
-# CSV processing
-# (csv is built-in to Python)
-
-# For local testing
-pytest>=7.4.0
-moto>=4.2.0

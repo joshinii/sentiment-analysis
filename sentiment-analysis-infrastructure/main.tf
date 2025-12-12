@@ -50,6 +50,7 @@ locals {
 # Frontend bucket
 resource "aws_s3_bucket" "frontend" {
   bucket = "${local.name_prefix}-frontend-${random_string.suffix.result}"
+  force_destroy = true
   
   tags = merge(
     local.common_tags,
@@ -115,6 +116,7 @@ resource "aws_s3_bucket_policy" "frontend" {
 # Data bucket (for batch processing)
 resource "aws_s3_bucket" "data" {
   bucket = "${local.name_prefix}-data-${random_string.suffix.result}"
+  force_destroy = true
   
   tags = merge(
     local.common_tags,
@@ -156,29 +158,17 @@ resource "aws_s3_bucket_lifecycle_configuration" "data" {
 resource "aws_dynamodb_table" "sentiment_analytics" {
   name           = "${local.name_prefix}-analytics"
   billing_mode   = "PAY_PER_REQUEST"
-  hash_key       = "user_id"
-  range_key      = "timestamp"
+  hash_key       = "PK"
+  range_key      = "SK"
 
   attribute {
-    name = "user_id"
+    name = "PK"
     type = "S"
   }
 
   attribute {
-    name = "timestamp"
-    type = "N"
-  }
-
-  attribute {
-    name = "batch_id"
+    name = "SK"
     type = "S"
-  }
-
-  global_secondary_index {
-    name            = "batch_id-timestamp-index"
-    hash_key        = "batch_id"
-    range_key       = "timestamp"
-    projection_type = "ALL"
   }
 
   point_in_time_recovery {
@@ -239,6 +229,17 @@ resource "aws_iam_role_policy" "sentiment_lambda" {
       {
         Effect = "Allow"
         Action = [
+          "s3:GetObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          aws_s3_bucket.data.arn,
+          "${aws_s3_bucket.data.arn}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
           "logs:CreateLogGroup",
           "logs:CreateLogStream",
           "logs:PutLogEvents"
@@ -287,9 +288,13 @@ resource "aws_iam_role_policy" "batch_lambda" {
       {
         Effect = "Allow"
         Action = [
-          "s3:GetObject"
+          "s3:GetObject",
+          "s3:ListBucket"
         ]
-        Resource = "${aws_s3_bucket.data.arn}/*"
+        Resource = [
+          aws_s3_bucket.data.arn,
+          "${aws_s3_bucket.data.arn}/*"
+        ]
       },
       {
         Effect = "Allow"
@@ -335,7 +340,8 @@ resource "aws_iam_role_policy" "history_lambda" {
         Effect = "Allow"
         Action = [
           "dynamodb:Query",
-          "dynamodb:Scan"
+          "dynamodb:Scan",
+          "dynamodb:GetItem"
         ]
         Resource = [
           aws_dynamodb_table.sentiment_analytics.arn,
@@ -409,6 +415,7 @@ data "archive_file" "history_lambda" {
 }
 
 # Lambda: Sentiment Analyzer
+# Lambda: Sentiment Analyzer
 resource "aws_lambda_function" "sentiment_analyzer" {
   filename         = data.archive_file.sentiment_lambda.output_path
   function_name    = "${local.name_prefix}-analyze-sentiment"
@@ -416,13 +423,18 @@ resource "aws_lambda_function" "sentiment_analyzer" {
   handler         = "lambda_function.lambda_handler"
   source_code_hash = data.archive_file.sentiment_lambda.output_base64sha256
   runtime         = "python3.11"
-  timeout         = 30
-  memory_size     = 512
+  timeout         = 60
+  memory_size     = 3008
+  ephemeral_storage {
+    size = 2048 # Increase /tmp size for model download
+  }
 
   environment {
     variables = {
       DYNAMODB_TABLE = aws_dynamodb_table.sentiment_analytics.name
-      MODEL_NAME     = "distilbert-base-uncased-finetuned-sst-2-english"
+      MODEL_BUCKET   = aws_s3_bucket.data.id
+      MODEL_PATH     = "/tmp/model_assets"
+      LOG_LEVEL      = "INFO"
     }
   }
 
@@ -443,12 +455,18 @@ resource "aws_lambda_function" "batch_processor" {
   source_code_hash = data.archive_file.batch_lambda.output_base64sha256
   runtime         = "python3.11"
   timeout         = 300
-  memory_size     = 1024
+  memory_size     = 3008
+  ephemeral_storage {
+    size = 2048 # Increase /tmp size
+  }
 
   environment {
     variables = {
-      DYNAMODB_TABLE = aws_dynamodb_table.sentiment_analytics.name
-      MODEL_NAME     = "distilbert-base-uncased-finetuned-sst-2-english"
+      DYNAMODB_TABLE    = aws_dynamodb_table.sentiment_analytics.name
+      TOPIC_ARN         = aws_sns_topic.alerts.arn
+      SENTIMENT_FUNCTION = "${local.name_prefix}-analyze-sentiment"
+      MODEL_BUCKET      = aws_s3_bucket.data.id
+      MODEL_PATH        = "/tmp/model_assets"
     }
   }
 
