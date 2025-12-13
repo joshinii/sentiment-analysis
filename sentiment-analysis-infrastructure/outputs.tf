@@ -50,7 +50,7 @@ output "sns_topic_arn" {
 output "deployment_instructions" {
   description = "Next steps after Terraform apply"
   value = <<-EOT
-    ✅ Infrastructure deployed successfully!
+    Infrastructure deployed successfully!
     
     Next steps:
     

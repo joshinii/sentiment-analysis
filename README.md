@@ -9,14 +9,12 @@ It uses AI to determine if text is positive or negative.
 -   History tracking
 -   Fully automated deployment
 
----
-
 ## Prerequisites
 -   **AWS Account** with CLI configured (`aws configure`)
 -   **Terraform** installed
 -   **Python 3.11+** installed
 
-## Deployment (The Easy Way)
+## Deployment
 
 ### 1. Configure Email Alerts
 1.  Go to `sentiment-analysis-infrastructure`.

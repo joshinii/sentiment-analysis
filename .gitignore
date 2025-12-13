@@ -71,3 +71,5 @@ tmp/
 *.json
 !package.json
 !tsconfig.json
+DESIGN.md
+DELIVERABLES_GUIDE.md

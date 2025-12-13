@@ -36,6 +36,30 @@ try:
 except Exception:
     AWS_AVAILABLE = False
 
+def get_secret():
+    if not AWS_AVAILABLE: return None
+    
+    secret_name = os.environ.get('SECRET_ARN')
+    region_name = os.environ.get('AWS_REGION', 'us-west-2')
+
+    if not secret_name:
+        logger.warning("SECRET_ARN not set. Skipping.")
+        return None
+
+    try:
+        session = boto3.session.Session()
+        client = session.client(service_name='secretsmanager', region_name=region_name)
+        response = client.get_secret_value(SecretId=secret_name)
+        if 'SecretString' in response:
+            logger.info("Successfully retrieved runtime secret")
+            return json.loads(response['SecretString'])
+    except Exception as e:
+        logger.error(f"Failed to retrieve secret: {e}")
+        return None
+
+# Runtime Secret Retrieval (Credential Elimination)
+API_SECRETS = get_secret()
+
 
 def softmax(x):
     """Compute softmax values for each sets of scores in x."""
