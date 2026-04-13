@@ -21,26 +21,26 @@ Minimal production-style sentiment inference system on AWS using Python Lambda, 
 
 ```mermaid
 flowchart LR
-    Browser[Browser] --> CF[S3 + CloudFront Frontend]
-    Browser --> API[API Gateway]
+  Browser[Browser] --> CF[S3 and CloudFront frontend]
+  Browser --> API[API Gateway]
 
-    API --> Analyze[Lambda: sentiment_analyzer]
-    API --> Submitter[Lambda: batch_processor (batch_submitter)]
-    API --> History[Lambda: history_handler]
-    API --> JobStatus[Lambda: job_status_handler]
+  API --> Analyze[Lambda sentiment_analyzer]
+  API --> Submitter[Lambda batch_processor batch_submitter]
+  API --> History[Lambda history_handler]
+  API --> JobStatus[Lambda job_status_handler]
 
-    Submitter --> Queue[SQS batch_jobs]
-    Queue --> Worker[Lambda: batch_worker]
-    Queue --> DLQ[SQS batch_jobs_dlq]
+  Submitter --> Queue[SQS batch_jobs]
+  Queue --> Worker[Lambda batch_worker]
+  Queue --> DLQ[SQS batch_jobs_dlq]
 
-    Analyze --> DDB[(DynamoDB)]
-    Submitter --> DDB
-    Worker --> DDB
-    History --> DDB
-    JobStatus --> DDB
+  Analyze --> DDB[(DynamoDB)]
+  Submitter --> DDB
+  Worker --> DDB
+  History --> DDB
+  JobStatus --> DDB
 
-    Analyze --> Model[(S3 model assets)]
-    Worker --> Model
+  Analyze --> Model[(S3 model assets)]
+  Worker --> Model
 ```
 
 If Mermaid does not render: frontend is served from S3/CloudFront, API is API Gateway + Lambda, async batch uses SQS + worker Lambda + DLQ, data is in DynamoDB, model assets are in S3.
