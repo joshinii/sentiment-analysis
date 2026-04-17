@@ -1,6 +1,6 @@
 # Sentiment Analysis Platform
 
-Minimal production-style sentiment inference system on AWS using Python Lambda, API Gateway, SQS, DynamoDB, S3, CloudFront, and Terraform.
+A sentiment inference system on AWS using Python Lambda, API Gateway, SQS, DynamoDB, S3, CloudFront, and Terraform.
 
 ## Project Overview
 
